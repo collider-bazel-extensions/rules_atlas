@@ -115,12 +115,16 @@ if [[ "$ready" != "True" ]]; then
 fi
 
 # Verify the schema actually landed: kubectl exec into the postgres
-# instance Pod (CNPG names it `<cluster>-1`) and run `\d users`. The
-# users table should have `id` (integer-ish, primary key) and `name`
-# (text).
+# instance Pod (CNPG names it `<cluster>-1`) and run `\d users`.
+# Connect via TCP `127.0.0.1` rather than the default Unix socket —
+# CNPG's pg_hba.conf uses peer auth on the local socket, which
+# requires the OS user calling psql to match the DB user. The
+# postgres container runs as user `postgres` (UID 26); to log in as
+# `app` we need TCP+password instead.
 echo "smoke: verifying users table via kubectl exec psql"
 psql_out=$("${KCTL[@]}" -n "$NS" exec "${PG_CLUSTER}-1" -c postgres -- \
-    psql -U app -d app -t -c "\d users" 2>&1) || {
+    env PGPASSWORD=smoke-fixture-atlas-cnpg \
+    psql -h 127.0.0.1 -U app -d app -t -c "\d users" 2>&1) || {
   echo "smoke: FAIL — psql \\d users failed:" >&2
   echo "$psql_out" >&2
   exit 1
