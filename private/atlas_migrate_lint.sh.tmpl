@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Generated wrapper for atlas_migrate_lint.
+set -euo pipefail
+
+if [[ -z "${RUNFILES_DIR:-}" ]]; then
+  if [[ -d "${0}.runfiles" ]]; then RUNFILES_DIR="${0}.runfiles"
+  elif [[ -d "$(dirname "$0").runfiles" ]]; then RUNFILES_DIR="$(dirname "$0").runfiles"
+  fi
+  export RUNFILES_DIR
+fi
+
+resolve() {
+  local p="$1"
+  if [[ -e "${RUNFILES_DIR}/_main/${p}" ]]; then
+    printf '%s\n' "${RUNFILES_DIR}/_main/${p}"
+  elif [[ -e "${RUNFILES_DIR}/${p}" ]]; then
+    printf '%s\n' "${RUNFILES_DIR}/${p}"
+  else
+    echo "atlas_migrate_lint: input not in runfiles: ${p}" >&2
+    exit 1
+  fi
+}
+
+ATLAS="$(resolve '{ATLAS_BIN}')"
+DEV_URL='{DEV_URL}'
+LATEST_N='{LATEST_N}'
+
+inputs=()
+for p in {INPUTS}; do
+  inputs+=("$(resolve "$p")")
+done
+
+# All migrations live in the same directory (validated by atlas itself
+# at lint time). Pick the dirname of any one input for --dir.
+mig_dir="$(dirname "${inputs[0]}")"
+
+# `atlas migrate lint` requires either `--git-base` or `--latest N`.
+# We use --latest, since git refs aren't available under `bazel test`.
+args=(--dev-url "$DEV_URL" --dir "file://$mig_dir")
+if [[ "$LATEST_N" -gt 0 ]]; then
+  args+=(--latest "$LATEST_N")
+else
+  # latest_n = 0 → lint the whole directory. Atlas spells this as a
+  # very large --latest (it has no `--all`); use a count of all .sql
+  # files in the dir.
+  total=$(find "$mig_dir" -maxdepth 1 -name '*.sql' | wc -l)
+  args+=(--latest "$total")
+fi
+
+# `atlas migrate lint` exits 0 even when diagnostics are emitted unless
+# `--config` rules them as errors. The default ruleset reports issues
+# but doesn't fail. Promote any non-empty diagnostic stream to a
+# failure: capture stderr, fail if non-empty.
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+if ! "$ATLAS" migrate lint "${args[@]}" 2>"$log"; then
+  cat "$log" >&2
+  exit 1
+fi
+if [[ -s "$log" ]]; then
+  cat "$log" >&2
+  echo "atlas_migrate_lint: diagnostics above were treated as failures" >&2
+  exit 1
+fi

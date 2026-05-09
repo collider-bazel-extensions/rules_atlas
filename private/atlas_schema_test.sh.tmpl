@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Generated wrapper for atlas_schema_test.
+set -euo pipefail
+
+if [[ -z "${RUNFILES_DIR:-}" ]]; then
+  if [[ -d "${0}.runfiles" ]]; then RUNFILES_DIR="${0}.runfiles"
+  elif [[ -d "$(dirname "$0").runfiles" ]]; then RUNFILES_DIR="$(dirname "$0").runfiles"
+  fi
+  export RUNFILES_DIR
+fi
+
+resolve() {
+  local p="$1"
+  if [[ -e "${RUNFILES_DIR}/_main/${p}" ]]; then
+    printf '%s\n' "${RUNFILES_DIR}/_main/${p}"
+  elif [[ -e "${RUNFILES_DIR}/${p}" ]]; then
+    printf '%s\n' "${RUNFILES_DIR}/${p}"
+  else
+    echo "atlas_schema_test: input not in runfiles: ${p}" >&2
+    exit 1
+  fi
+}
+
+ATLAS="$(resolve '{ATLAS_BIN}')"
+MODE='{MODE}'
+DEV_URL='{DEV_URL}'
+
+inputs=()
+for p in {INPUTS}; do
+  inputs+=("$(resolve "$p")")
+done
+
+case "$MODE" in
+  fmt)
+    # `atlas schema fmt` rewrites in place. To check-only we copy to a
+    # scratch dir and diff. This mirrors `gofmt -l` semantics — exit
+    # non-zero with a diff if the input wasn't fmt-clean.
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    fail=0
+    for src in "${inputs[@]}"; do
+      copy="$scratch/$(basename "$src")"
+      cp "$src" "$copy"
+      "$ATLAS" schema fmt "$copy" >/dev/null
+      if ! diff -u "$src" "$copy"; then
+        echo "atlas_schema_test: $src is not fmt-clean" >&2
+        fail=1
+      fi
+    done
+    exit $fail
+    ;;
+  validate)
+    # `atlas schema inspect` against the dev URL — engine parses the
+    # HCL/SQL and reports any unresolvable refs. Loop over inputs so a
+    # multi-file srcs list still validates each independently.
+    fail=0
+    for src in "${inputs[@]}"; do
+      if ! "$ATLAS" schema inspect --dev-url "$DEV_URL" -u "file://$src" >/dev/null; then
+        echo "atlas_schema_test: $src failed to validate against $DEV_URL" >&2
+        fail=1
+      fi
+    done
+    exit $fail
+    ;;
+esac

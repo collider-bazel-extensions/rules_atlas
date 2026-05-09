@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  analysis_and_cli:
+    name: bazel test (ubuntu-latest, CLI tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-cli
+          repository-cache: true
+
+      # `bazel build //...` analyzes ALL platforms' atlas binary repos,
+      # including darwin which can't be downloaded on a linux runner
+      # without the right sha. Target specific paths instead — same
+      # lesson rules_temporal v0.3 / rules_spicedb learned.
+      - name: bazel build (smoke target)
+        run: bazel build //tests/install_smoke:smoke_test
+
+      - name: bazel test (CLI primitives)
+        run: bazel test //tests:all --test_output=errors
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bazel-testlogs-cli
+          path: bazel-testlogs/
+          if-no-files-found: ignore
+
+  install_smoke:
+    # Full E2E install smoke: kind + CNPG operator + CNPG Cluster
+    # (single Postgres) + Atlas Operator + AtlasSchema CR + kubectl
+    # exec psql verify.
+    name: install smoke (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-install-smoke
+          repository-cache: true
+
+      - name: Verify Docker is available
+        run: docker version
+
+      - name: bazel test //tests/install_smoke:smoke_test
+        # kind boot (~30s) + CNPG install (~60s) + CNPG Cluster
+        # bootstrap (image pull + initdb, ~2 min) + Atlas Operator
+        # install (~30s) + AtlasSchema reconciliation (~30s) + verify.
+        run: bazel test //tests/install_smoke:smoke_test --test_output=streamed --test_timeout=1500
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bazel-testlogs-install-smoke
+          path: bazel-testlogs/
+          if-no-files-found: ignore

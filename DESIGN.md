@@ -1,0 +1,49 @@
+# rules_atlas — design notes
+
+## Two-family-in-one-repo shape
+
+Atlas's value-add is the schema-as-code workflow. Separating CLI from operator into two rule sets would force consumers picking either branch to learn two install patterns later — same conclusion rules_crossplane reached (CLI `crossplane_render_test` + cluster `crossplane_install` in one repo). Both families share the version-pin format (`tools/versions.bzl`) and the binary-toolchain plumbing.
+
+## CLI: community edition, not Atlas Pro
+
+`release.ariga.io/atlas/atlas-{linux,darwin}-{amd64,arm64}-v<ver>` ships the **EULA-licensed** Atlas Pro builds by default. The `atlas-community-*` siblings are Apache-2.0 — strictly the OSS feature set. We pin community to match the family's open-source posture.
+
+Operational difference: the community build is dialect-strict. `atlas schema inspect --dev-url sqlite://...` against a postgres-typed HCL (e.g. `type = serial`) errors with "Unknown column.type". For consumers who need cross-engine validation, override `dev_url` to a `docker://postgres/16/test` URL — but that requires Docker on the runner.
+
+## Install: render-from-source, not OCI
+
+Atlas Operator's official install path is the OCI Helm chart `oci://ghcr.io/ariga/charts/atlas-operator`. There's no GitHub release asset (unlike temporal-operator / spicedb-operator).
+
+Rather than wire OCI auth + bearer-token negotiation into the maintainer flow, we download the upstream **source tarball** at the pinned tag (`v0.7.29.tar.gz`), extract the chart from `charts/atlas-operator/`, and render via `rules_helm`'s `helm_template`. Same end-state as the OCI path (the chart contents are identical) without the auth complexity.
+
+## Wait shape
+
+`atlas_operator_install`:
+- Deployment `atlas-operator` Available (the chart's helper template names it after the release name when the release name contains the chart name — we pass `release_name = "atlas-operator"`).
+- 2 CRDs registered: `atlasschemas.db.atlasgo.io`, `atlasmigrations.db.atlasgo.io`.
+
+The chart bundles its own CRDs under `templates/crds/crd.yaml` (rendered with `--include-crds`); consumers don't need a separate CRD apply step.
+
+## Smoke composition
+
+5-link itest dep chain:
+
+```
+kind_svc → cnpg_install_svc → atlas_install_svc → smoke_test
+```
+
+(rules_cloudnativepg already provides `cloudnativepg_install` — this repo composes it as the postgres backing rather than rolling its own. Cross-rule compose pattern, mirroring rules_zitadel v0.3.)
+
+`smoke_test`:
+1. Apply Namespace + Secret + CNPG `Cluster` + `AtlasSchema` CR (single yaml).
+2. Wait CNPG `.status.phase == "Cluster in healthy state"` AND `readyInstances >= 1`.
+3. Wait AtlasSchema `.status.conditions[?(@.type=="Ready")].status == "True"`.
+4. `kubectl exec smoke-pg-1 -c postgres -- psql -U app -d app -c "\d users"` and assert `id` + `name` columns are present.
+
+Steps 1–3 confirm the install + reconciliation. Step 4 confirms the schema *actually landed in the database* — without it the smoke would only assert the operator's own status reports, not the value-add (per the family's smoke-test depth rule).
+
+## What this repo does not (yet) do
+
+- **`AtlasMigration` CR**: same operator handles versioned migrations (the second consumer-facing CRD). Out of scope for v0.1's surface; consumers can apply the CR directly while the install macro waits on the same CRDs.
+- **`atlas_schema_apply`**: a Bazel-shaped macro that `kubectl apply`s an `AtlasSchema` CR. Likely v0.2 — the question is whether to also expose `atlas_migrate_apply` in the same shape (matrix of two rules × two CRDs).
+- **Multi-version operator**: the family's standard pattern (rules_cloudnativepg, rules_kind, rules_helm) is to support N versions side-by-side. Atlas Operator only ships ~one stable version at a time so a single pin is fine.

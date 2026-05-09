@@ -1,0 +1,33 @@
+"""In-tree analysis + CLI tests for rules_atlas."""
+
+load("@rules_atlas//:defs.bzl", "atlas_migrate_lint_test", "atlas_schema_test")
+
+# ---- atlas_schema_test ------------------------------------------------------
+
+# Both schemas are fmt-clean — atlas schema fmt is dialect-agnostic
+# so a single rule can cover postgres + sqlite flavors at once.
+atlas_schema_test(
+    name = "schemas_fmt_test",
+    srcs = [
+        "schema_sqlite.hcl",
+        "schema_users.hcl",
+    ],
+)
+
+# Validate runs `atlas schema inspect` against the configured dev
+# URL. The community build is dialect-strict — postgres-typed schemas
+# (e.g. schema_users.hcl with `serial`) won't validate against the
+# default sqlite dev URL. Keep the validate test scoped to the
+# sqlite-flavored schema.
+atlas_schema_test(
+    name = "schema_sqlite_validate_test",
+    srcs = ["schema_sqlite.hcl"],
+    mode = "validate",
+)
+
+# ---- atlas_migrate_lint -----------------------------------------------------
+
+atlas_migrate_lint_test(
+    name = "migrations_lint_test",
+    migrations = glob(["migrations/*.sql"]),
+)

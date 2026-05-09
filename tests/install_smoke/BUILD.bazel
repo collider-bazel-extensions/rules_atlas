@@ -1,0 +1,111 @@
+"""Full E2E install smoke for atlas_operator_install.
+
+Composition (5-link itest dep chain):
+  kind_svc → cnpg_install_svc → atlas_install_svc → smoke_test
+
+Smoke applies a CNPG Cluster + an AtlasSchema CR pointing at the
+cluster's postgres URL, waits for both to be Ready, then `kubectl
+exec`s psql to verify the `users` table actually landed.
+"""
+
+load("@rules_atlas//:defs.bzl", "atlas_operator_install", "atlas_operator_install_health_check")
+load("@rules_cloudnativepg//:defs.bzl", "cloudnativepg_health_check", "cloudnativepg_install")
+load("@rules_itest//:itest.bzl", "itest_service", "service_test")
+load("@rules_kind//:defs.bzl", "kind_cluster", "kind_health_check")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+kind_cluster(name = "cluster", k8s_version = "1.32")
+
+kind_health_check(name = "cluster_health", cluster = ":cluster")
+
+itest_service(
+    name = "kind_svc",
+    exe = ":cluster",
+    health_check = ":cluster_health",
+    tags = ["manual"],
+)
+
+# ---- CNPG operator install (provides the postgres backing) ------------------
+
+cloudnativepg_install(
+    name = "cnpg_install_bin",
+    tags = ["manual"],
+)
+
+cloudnativepg_health_check(
+    name = "cnpg_health_bin",
+    tags = ["manual"],
+)
+
+sh_binary(
+    name = "cnpg_install_wrapper",
+    srcs = ["cnpg_install_wrapper.sh"],
+    data = [":cnpg_install_bin"],
+)
+
+sh_binary(
+    name = "cnpg_health_wrapper",
+    srcs = ["cnpg_health_wrapper.sh"],
+    data = [":cnpg_health_bin"],
+)
+
+itest_service(
+    name = "cnpg_install_svc",
+    exe = ":cnpg_install_wrapper",
+    deps = [":kind_svc"],
+    health_check = ":cnpg_health_wrapper",
+    tags = ["manual"],
+)
+
+# ---- Atlas Operator install (the rule under test) ---------------------------
+
+atlas_operator_install(
+    name = "atlas_install_bin",
+    tags = ["manual"],
+)
+
+atlas_operator_install_health_check(
+    name = "atlas_health_bin",
+    tags = ["manual"],
+)
+
+sh_binary(
+    name = "atlas_install_wrapper",
+    srcs = ["install_wrapper.sh"],
+    data = [":atlas_install_bin"],
+)
+
+sh_binary(
+    name = "atlas_health_wrapper",
+    srcs = ["health_wrapper.sh"],
+    data = [":atlas_health_bin"],
+)
+
+itest_service(
+    name = "atlas_install_svc",
+    exe = ":atlas_install_wrapper",
+    deps = [":cnpg_install_svc"],
+    health_check = ":atlas_health_wrapper",
+    tags = ["manual"],
+)
+
+# ---- smoke ------------------------------------------------------------------
+
+sh_test(
+    name = "smoke_test_bin",
+    srcs = ["smoke_test.sh"],
+    data = ["cluster.yaml"],
+    tags = ["manual"],
+)
+
+service_test(
+    name = "smoke_test",
+    services = [":atlas_install_svc"],
+    test = ":smoke_test_bin",
+    tags = [
+        "manual",
+        "no-sandbox",
+        "requires-network",
+    ],
+)

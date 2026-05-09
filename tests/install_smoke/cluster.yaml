@@ -1,0 +1,93 @@
+---
+# Smoke fixture: a CNPG-managed Postgres + an AtlasSchema CR pointing
+# at it.
+#
+# The CNPG operator and Atlas Operator are installed separately by
+# the itest dep chain (rules_cloudnativepg's cloudnativepg_install +
+# this repo's atlas_operator_install). This file only carries the
+# Cluster CR + bootstrap credentials Secret + the AtlasSchema CR
+# under test.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: atlas-smoke
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: smoke-pg-app
+  namespace: atlas-smoke
+type: kubernetes.io/basic-auth
+stringData:
+  username: app
+  password: smoke-fixture-atlas-cnpg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: smoke-pg
+  namespace: atlas-smoke
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.6
+  storage:
+    size: 512Mi
+    storageClass: standard
+  postgresql:
+    parameters:
+      shared_buffers: "64MB"
+      max_connections: "100"
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      secret:
+        name: smoke-pg-app
+---
+# AtlasSchema CR — the operator picks up this resource, opens the
+# Postgres URL, plans + applies the schema diff. Status condition
+# `Ready=True` lands once the diff has been applied successfully.
+#
+# `urlFrom.secretKeyRef` reads `<key>` out of the named Secret and
+# uses it as the connection string. We assemble a postgres URL via a
+# Secret entry below (CNPG's auto-generated `<cluster>-app` Secret
+# carries password + username + host/port/dbname but NOT a
+# pre-assembled URL, so we author one here pointing at the cluster's
+# `-rw` Service).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: smoke-pg-atlas-url
+  namespace: atlas-smoke
+type: Opaque
+stringData:
+  url: "postgres://app:smoke-fixture-atlas-cnpg@smoke-pg-rw.atlas-smoke.svc.cluster.local:5432/app?sslmode=disable&search_path=public"
+---
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: smoke-schema
+  namespace: atlas-smoke
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: smoke-pg-atlas-url
+      key: url
+  schema:
+    hcl: |
+      schema "public" {}
+      table "users" {
+        schema = schema.public
+        column "id" {
+          null = false
+          type = serial
+        }
+        column "name" {
+          null = false
+          type = text
+        }
+        primary_key {
+          columns = [column.id]
+        }
+      }

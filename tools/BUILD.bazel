@@ -1,0 +1,45 @@
+"""Maintainer-only render flow.
+
+Pipeline:
+  @atlas_operator_src_<ver>//:chart_files
+                       │
+                       ▼  helm_template (rules_helm)
+                       ▼
+       bazel-bin/tools/atlas_operator_<ver>.yaml
+                       │
+                       ▼  bazel run //tools:render_writeback_<ver>
+                       ▼
+   private/manifests/atlas_operator.yaml (committed; what
+                                           consumers consume)
+
+NO host helm needed at any point.
+"""
+
+load("@rules_helm//:defs.bzl", "helm_template")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+exports_files([
+    "render_atlas_operator.sh",
+    "versions.bzl",
+])
+
+# ---- 0.7.29 -----------------------------------------------------------------
+
+helm_template(
+    name = "render_atlas_operator_0_7_29",
+    chart = ["@atlas_operator_src_0_7_29//:chart_files"],
+    namespace = "atlas-operator-system",
+    release_name = "atlas-operator",
+    include_crds = True,
+)
+
+sh_binary(
+    name = "render_writeback_0_7_29",
+    srcs = ["writeback.sh"],
+    data = [":render_atlas_operator_0_7_29"],
+    args = [
+        "$(rootpath :render_atlas_operator_0_7_29)",
+        "private/manifests/atlas_operator.yaml",
+    ],
+    visibility = ["//visibility:public"],
+)

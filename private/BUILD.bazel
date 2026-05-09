@@ -1,0 +1,32 @@
+"""Private build files for rules_atlas. Public surface lives in
+//:defs.bzl which re-exports from here."""
+
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "atlas_schema_test.sh.tmpl",
+    "atlas_migrate_lint.sh.tmpl",
+])
+
+bzl_library(
+    name = "providers",
+    srcs = ["providers.bzl"],
+)
+
+bzl_library(
+    name = "atlas_schema_test",
+    srcs = ["atlas_schema_test.bzl"],
+)
+
+bzl_library(
+    name = "atlas_migrate_lint",
+    srcs = ["atlas_migrate_lint.bzl"],
+)
+
+bzl_library(
+    name = "atlas_operator_install",
+    srcs = ["atlas_operator_install.bzl"],
+    deps = ["@rules_kubectl//:defs"],
+)
