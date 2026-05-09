@@ -1,0 +1,34 @@
+---
+# AtlasSchema CR — applied AFTER the target Cluster + dev-DB are
+# Ready (smoke_test.sh enforces that ordering). The operator picks
+# up this resource, opens both URLs, plans the diff against the dev
+# DB, and applies it to the target. Status condition `Ready=True`
+# lands once the diff has been applied successfully.
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: smoke-schema
+  namespace: atlas-smoke
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: smoke-pg-atlas-url
+      key: url
+  devURL: "postgres://postgres:devdb@atlas-devdb.atlas-smoke.svc.cluster.local:5432/devdb?sslmode=disable"
+  schema:
+    hcl: |
+      schema "public" {}
+      table "users" {
+        schema = schema.public
+        column "id" {
+          null = false
+          type = serial
+        }
+        column "name" {
+          null = false
+          type = text
+        }
+        primary_key {
+          columns = [column.id]
+        }
+      }

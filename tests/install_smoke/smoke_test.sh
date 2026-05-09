@@ -42,8 +42,10 @@ _resolve() {
 
 CLUSTER_YAML="$(_resolve tests/install_smoke/cluster.yaml)" \
     || { echo "smoke: cluster.yaml not in runfiles" >&2; exit 1; }
+ATLASSCHEMA_YAML="$(_resolve tests/install_smoke/atlasschema.yaml)" \
+    || { echo "smoke: atlasschema.yaml not in runfiles" >&2; exit 1; }
 
-echo "smoke: applying $CLUSTER_YAML"
+echo "smoke: applying pre-fixture (CNPG Cluster + dev-DB) $CLUSTER_YAML"
 "${KCTL[@]}" apply --server-side -f "$CLUSTER_YAML" >/dev/null
 
 # Wait for the CNPG Cluster to come up. CNPG's status surface uses
@@ -70,6 +72,20 @@ if [[ -z "$healthy" ]]; then
   "${KCTL[@]}" -n "$NS" get pods -o wide >&2 || true
   exit 1
 fi
+
+# Wait for the hand-rolled atlas-devdb to become Ready. The
+# Deployment has a pg_isready readiness probe so Available implies
+# postgres is accepting connections — only THEN can the AtlasSchema
+# safely reconcile (the operator stalls permanently after a single
+# connect-refused).
+echo "smoke: waiting for atlas-devdb Deployment to be Available"
+"${KCTL[@]}" -n "$NS" wait deploy/atlas-devdb \
+    --for=condition=Available --timeout=180s
+
+# Now apply the AtlasSchema. Both the target and the dev URL accept
+# connections, so the operator's first reconcile succeeds.
+echo "smoke: applying AtlasSchema $ATLASSCHEMA_YAML"
+"${KCTL[@]}" apply --server-side -f "$ATLASSCHEMA_YAML" >/dev/null
 
 # Wait for AtlasSchema to reach Ready. The operator auto-provisions
 # a "dev DB" Deployment (smoke-schema-atlas-dev-db) on first reconcile
