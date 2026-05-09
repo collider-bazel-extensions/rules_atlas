@@ -19,18 +19,33 @@ jobs:
           disk-cache: ${{ github.workflow }}-cli
           repository-cache: true
 
-      # Ubuntu's postgres ships under /usr/lib/postgresql/<ver>/bin/
-      # (initdb, pg_ctl), with only thin /usr/bin wrappers for psql +
-      # pg_isready. rules_pg's `pg.system()` invokes `which pg_ctl` at
-      # repo-rule time, so the bin dir must be on PATH BEFORE
-      # `bazel build` — added here so all subsequent steps inherit it.
-      - name: Add postgres bin dir to PATH
+      # rules_pg's launcher uses `--socket-fd=N` for PostgreSQL major
+      # versions 14–17. That's a Debian-only patch (from
+      # postgresql-common) — stock upstream postgres rejects it as
+      # `unrecognized configuration parameter "socket_fd"`. The
+      # ubuntu-runner default postgres is 16 and lacks the patch.
+      # Install PG 18 from PGDG so `actual_pg_version` falls OUTSIDE
+      # rules_pg's 14–17 range and the launcher takes its non-
+      # socket-fd fallback path. Also: PG binaries live in
+      # /usr/lib/postgresql/<ver>/bin/, NOT /usr/bin (only thin
+      # wrappers for psql + pg_isready) — add the bin dir to PATH so
+      # rules_pg's `pg.system()` sees pg_ctl at repo-rule time.
+      - name: Install PostgreSQL 18 (PGDG) and put bin on PATH
         run: |
           set -euo pipefail
-          pg_bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)
-          [[ -n "$pg_bin" ]] || { echo "no /usr/lib/postgresql/*/bin found" >&2; exit 1; }
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              | sudo tee /etc/apt/keyrings/pgdg.asc > /dev/null
+          codename=$(lsb_release -cs)
+          echo "deb [signed-by=/etc/apt/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt $codename-pgdg main" \
+              | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-18
+          pg_bin=/usr/lib/postgresql/18/bin
+          [[ -d "$pg_bin" ]] || { echo "$pg_bin not present" >&2; exit 1; }
           echo "$pg_bin" >> "$GITHUB_PATH"
           echo "added to PATH: $pg_bin"
+          "$pg_bin/pg_ctl" --version
 
       # `bazel build //...` analyzes ALL platforms' atlas binary repos,
       # including darwin which can't be downloaded on a linux runner
