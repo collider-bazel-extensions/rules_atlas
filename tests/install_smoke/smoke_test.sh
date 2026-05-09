@@ -71,23 +71,30 @@ if [[ -z "$healthy" ]]; then
   exit 1
 fi
 
-# Wait for AtlasSchema to reach Ready. The operator polls every
-# few seconds; with a healthy postgres + a small schema this clears
-# in <60s. Bumping deadline to 240s for cold-image pulls.
+# Wait for AtlasSchema to reach Ready. The operator auto-provisions
+# a "dev DB" Deployment (smoke-schema-atlas-dev-db) on first reconcile
+# for diff planning — that's a cold postgres image pull + boot, which
+# adds ~60s on first runs. Bumping deadline to 360s; the typical
+# warm-cache run lands in <90s.
 echo "smoke: waiting for AtlasSchema/$ATLAS_SCHEMA to reach Ready"
-deadline=$(( $(date +%s) + 240 ))
+deadline=$(( $(date +%s) + 360 ))
 ready=""
 while (( $(date +%s) < deadline )); do
   ready=$("${KCTL[@]}" -n "$NS" get atlasschema "$ATLAS_SCHEMA" \
       -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
   [[ "$ready" == "True" ]] && break
-  sleep 3
+  sleep 5
 done
 if [[ "$ready" != "True" ]]; then
   echo "smoke: FAIL — AtlasSchema never reached Ready (status=${ready:-<unset>})" >&2
+  echo "---- AtlasSchema status ----" >&2
   "${KCTL[@]}" -n "$NS" get atlasschema "$ATLAS_SCHEMA" -o yaml >&2 || true
+  echo "---- pods (-n $NS) ----" >&2
+  "${KCTL[@]}" -n "$NS" get pods -o wide >&2 || true
+  echo "---- dev-db deploy (if any) ----" >&2
+  "${KCTL[@]}" -n "$NS" describe deploy "${ATLAS_SCHEMA}-atlas-dev-db" >&2 || true
   echo "---- atlas-operator logs ----" >&2
-  "${KCTL[@]}" -n atlas-operator-system logs deploy/atlas-operator --tail=200 >&2 || true
+  "${KCTL[@]}" -n atlas-operator-system logs deploy/atlas-operator --tail=300 >&2 || true
   exit 1
 fi
 
