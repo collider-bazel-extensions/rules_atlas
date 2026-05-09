@@ -13,10 +13,21 @@ Bazel rules for [Atlas](https://atlasgo.io) — declarative database schema mana
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_atlas", version = "0.2.0")
+bazel_dep(name = "rules_atlas", version = "0.3.0")
+
+atlas = use_extension("@rules_atlas//:extensions.bzl", "atlas")
+atlas.version(version = "1.2.0")
+use_repo(
+    atlas,
+    "atlas_darwin_amd64",
+    "atlas_darwin_arm64",
+    "atlas_linux_amd64",
+    "atlas_linux_arm64",
+)
+register_toolchains("@rules_atlas//toolchain:all")
 ```
 
-If you only need the CLI primitives, that's all the wiring needed — the binary toolchain registers itself via the module extension.
+The `atlas` extension is `mod.is_root`-guarded — only the root module's `atlas.version()` tags fire — so consumers must declare it themselves rather than inheriting it from rules_atlas's own `MODULE.bazel`. (The guard prevents `@atlas_<plat>` repo-name collisions when rules_atlas is consumed both as a direct and transitive dep.) Same pattern as `rules_capsule`, `rules_temporal`, and other `mod.is_root`-guarded sibling rule sets in this org.
 
 The install primitives also require [`rules_kubectl`](https://github.com/collider-bazel-extensions/rules_kubectl) ≥ 0.2.0 (transitive — the macros are thin wrappers around `kubectl_apply`).
 
@@ -45,12 +56,24 @@ atlas_schema_test(
     # requires Docker on the runner).
 )
 
-# Lint the latest migration for destructive changes.
+# Lint the latest migration for destructive changes (sqlite default).
 atlas_migrate_lint_test(
     name = "migrations_lint_test",
     migrations = glob(["migrations/*.sql"]),
     # Default latest_n=1 matches the typical PR-gate use case. Set to
     # 0 to lint the entire dir.
+)
+
+# Lint postgres-flavored migrations against a rules_pg-backed dev URL.
+# JSONB / gen_random_uuid() / etc. don't parse under sqlite; point at
+# pg_server instead.
+atlas_migrate_lint_test(
+    name = "migrations_lint_pg_test",
+    migrations = glob(["migrations/*.sql"]),
+    dev_service = ":dev_pg",   # rules_pg pg_server
+    # dev_url_template defaults to the keys rules_pg writes
+    # (PGUSER/PGPASSWORD/PGHOST/PGPORT/PGDATABASE).
+    tags = ["requires-postgres"],
 )
 ```
 

@@ -1,0 +1,28 @@
+"""Postgres-backed lint smoke for atlas_migrate_lint_test's
+`dev_service` attribute. Asserts a postgres-typed migration
+(JSONB + gen_random_uuid()) lints clean against a rules_pg-backed
+dev URL — sqlite would reject the same SQL ("near JSONB: syntax
+error" / "no such function: gen_random_uuid").
+"""
+
+load("@rules_atlas//:defs.bzl", "atlas_migrate_lint_test")
+load("@rules_pg//:defs.bzl", "pg_server", "postgres_schema")
+
+postgres_schema(
+    name = "empty_schema",
+    srcs = [],
+)
+
+pg_server(
+    name = "dev_pg",
+    schema = ":empty_schema",
+)
+
+atlas_migrate_lint_test(
+    name = "lint_pg_smoke_test",
+    migrations = glob(["migrations/*.sql"]),
+    dev_service = ":dev_pg",
+    # dev_url_template defaults to the rules_pg PG* keys; no override
+    # needed.
+    tags = ["requires-postgres"],
+)

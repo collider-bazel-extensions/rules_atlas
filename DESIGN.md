@@ -64,6 +64,19 @@ Anything whose `DefaultInfo.executable`, when launched with `${TEST_TMPDIR:-/tmp
 
 The wrapper template is bash, full of `${VAR}` expansions. If we use `{KEY}` as the substitution marker, `${KEY_INSIDE_BASH_VAR}` patterns get half-substituted (the inner `{KEY...}` matches a substitution key) and the resulting script is broken. Use `__KEY__` so substitution markers can't collide with bash syntax.
 
+## `atlas_migrate_lint_test` — sqlite vs `dev_service` (v0.3)
+
+`migrate lint` parses each migration's SQL against the dev URL's grammar. The default `dev_url = sqlite://?mode=memory&_fk=1` keeps the rule fully hermetic, but it's dialect-strict — postgres-typed migrations (`JSONB`, `gen_random_uuid()`, `TIMESTAMPTZ`, `::regclass` casts, etc.) reject as "syntax error" against sqlite even though they're valid Postgres.
+
+v0.3 adds an optional `dev_service` attribute (label, executable target) + `dev_url_template` (string) that mirrors `atlas_migrate_diff_run`'s shape. When `dev_service` is set, the wrapper:
+
+1. Launches `dev_service` in the background (`TEST_TMPDIR=<state-dir>` so `rules_pg`'s `pg_server` writes its env file under our control).
+2. Polls for `<state-dir>/<dev_service.name>.env` (60s deadline).
+3. Sources the env file, expands `dev_url_template` via `envsubst`.
+4. Passes that URL as `--dev-url` to `atlas migrate lint`.
+
+The dev_service plumbing is the same primitive `atlas_migrate_diff_run` uses (down to the `__KEY__`-marker convention and the `TEST_TMPDIR` override). Eventually a shared internal helper would dedupe the two templates; for now they're parallel, which keeps each rule's wrapper readable end-to-end.
+
 ## What this repo does not (yet) do
 
 - **`AtlasMigration` CR**: same operator handles versioned migrations (the second consumer-facing CRD). Consumers can apply the CR directly while the install macro waits on the same CRDs.

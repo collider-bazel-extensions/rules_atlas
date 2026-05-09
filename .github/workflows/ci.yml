@@ -55,7 +55,8 @@ jobs:
         run: |
           bazel build \
             //tests/install_smoke:smoke_test \
-            //tests/migrate_diff_smoke:migrate_diff_smoke_test
+            //tests/migrate_diff_smoke:migrate_diff_smoke_test \
+            //tests/migrate_lint_pg_smoke:lint_pg_smoke_test
 
       - name: bazel test (CLI primitives)
         run: bazel test //tests:all --test_output=errors
@@ -71,8 +72,12 @@ jobs:
           done
           initdb --version
 
-      - name: bazel test (migrate-diff smoke)
-        run: bazel test //tests/migrate_diff_smoke:migrate_diff_smoke_test --test_output=errors
+      - name: bazel test (migrate-diff smoke + lint-pg smoke)
+        run: |
+          bazel test \
+            //tests/migrate_diff_smoke:migrate_diff_smoke_test \
+            //tests/migrate_lint_pg_smoke:lint_pg_smoke_test \
+            --test_output=errors
 
       - name: Upload test logs on failure
         if: failure()
