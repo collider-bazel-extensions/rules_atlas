@@ -19,6 +19,19 @@ jobs:
           disk-cache: ${{ github.workflow }}-cli
           repository-cache: true
 
+      # Ubuntu's postgres ships under /usr/lib/postgresql/<ver>/bin/
+      # (initdb, pg_ctl), with only thin /usr/bin wrappers for psql +
+      # pg_isready. rules_pg's `pg.system()` invokes `which pg_ctl` at
+      # repo-rule time, so the bin dir must be on PATH BEFORE
+      # `bazel build` — added here so all subsequent steps inherit it.
+      - name: Add postgres bin dir to PATH
+        run: |
+          set -euo pipefail
+          pg_bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)
+          [[ -n "$pg_bin" ]] || { echo "no /usr/lib/postgresql/*/bin found" >&2; exit 1; }
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          echo "added to PATH: $pg_bin"
+
       # `bazel build //...` analyzes ALL platforms' atlas binary repos,
       # including darwin which can't be downloaded on a linux runner
       # without the right sha. Target specific paths instead — same
@@ -32,9 +45,9 @@ jobs:
       - name: bazel test (CLI primitives)
         run: bazel test //tests:all --test_output=errors
 
-      # rules_pg's pg_server uses the host postgres binaries (initdb,
-      # pg_ctl, psql, pg_isready). Preinstalled on the GitHub
-      # ubuntu-latest runner — verify before launching the smoke.
+      # rules_pg's pg_server uses host postgres binaries (initdb,
+      # pg_ctl, psql, pg_isready). Verify post-PATH-mod that all four
+      # are reachable before launching the smoke.
       - name: Verify postgres on PATH
         run: |
           set -euo pipefail
