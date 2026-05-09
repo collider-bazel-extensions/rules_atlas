@@ -8,6 +8,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "atlas_schema_test.sh.tmpl",
     "atlas_migrate_lint.sh.tmpl",
+    "atlas_migrate_diff_run.sh.tmpl",
 ])
 
 bzl_library(
@@ -23,6 +24,11 @@ bzl_library(
 bzl_library(
     name = "atlas_migrate_lint",
     srcs = ["atlas_migrate_lint.bzl"],
+)
+
+bzl_library(
+    name = "atlas_migrate_diff_run",
+    srcs = ["atlas_migrate_diff_run.bzl"],
 )
 
 bzl_library(

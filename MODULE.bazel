@@ -18,7 +18,7 @@ private/manifests/atlas_operator.yaml.
 
 module(
     name = "rules_atlas",
-    version = "0.1.0",
+    version = "0.2.0",
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.8.2")
@@ -101,3 +101,15 @@ atlas_operator_chart = use_extension(
 )
 atlas_operator_chart.version(version = "0.7.29")
 use_repo(atlas_operator_chart, "atlas_operator_src_0_7_29")
+
+# rules_pg is dev-only — used by the in-tree `atlas_migrate_diff_run`
+# smoke (provides a hermetic Postgres dev URL). Consumers do NOT
+# inherit it; they bring their own dev_service implementation. (Any
+# target writing $RULES_PG_OUTPUT_ENV_FILE-sized KEY=VALUE env files
+# is compatible — see DESIGN.md.)
+bazel_dep(name = "rules_pg", version = "0.2.1", dev_dependency = True)
+git_override(
+    module_name = "rules_pg",
+    remote = "https://github.com/collider-bazel-extensions/rules_pg",
+    commit = "bc13d2a52e969fd52e4b15f32a215283309ac7dc",  # v0.2.1
+)

@@ -2,9 +2,10 @@
 
 Bazel rules for [Atlas](https://atlasgo.io) — declarative database schema management. Two families in one repo:
 
-- **CLI primitives** — hermetic Atlas binary as Bazel test rules:
+- **CLI primitives** — hermetic Atlas binary as Bazel rules:
   - `atlas_schema_test` — runs `atlas schema fmt --check` (or `atlas schema inspect` against a dev URL) on an HCL/SQL schema file.
   - `atlas_migrate_lint_test` — runs `atlas migrate lint` over a versioned-migrations directory.
+  - `atlas_migrate_diff_run` *(v0.2)* — `bazel run`-shaped target that drives `atlas migrate diff` against a dev URL provided by a long-running dev_service (typically [`rules_pg`](https://github.com/collider-bazel-extensions/rules_pg)'s `pg_server`).
 - **Install primitives** — Atlas Kubernetes Operator install over `rules_kubectl`:
   - `atlas_operator_install` — applies the pinned Atlas Operator manifest, waits for the operator Deployment + `AtlasSchema`/`AtlasMigration` CRDs.
   - `atlas_operator_install_health_check` — paired readiness probe.
@@ -12,7 +13,7 @@ Bazel rules for [Atlas](https://atlasgo.io) — declarative database schema mana
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_atlas", version = "0.1.0")
+bazel_dep(name = "rules_atlas", version = "0.2.0")
 ```
 
 If you only need the CLI primitives, that's all the wiring needed — the binary toolchain registers itself via the module extension.
@@ -52,6 +53,40 @@ atlas_migrate_lint_test(
     # 0 to lint the entire dir.
 )
 ```
+
+### `atlas_migrate_diff_run` (v0.2)
+
+`bazel run`-shaped — invokes `atlas migrate diff` against a hermetic dev URL provided by a long-running `dev_service` target. Useful for developer-time migration generation:
+
+```python
+load("@rules_atlas//:defs.bzl", "atlas_migrate_diff_run")
+load("@rules_pg//:defs.bzl", "pg_server", "postgres_schema")
+
+postgres_schema(name = "empty", srcs = [])
+pg_server(name = "dev_pg", schema = ":empty")
+
+atlas_migrate_diff_run(
+    name = "migrate-diff",
+    atlas_config = "atlas.hcl",
+    migrations = glob(["migrations/*"]),
+    dev_service = ":dev_pg",
+    env = "local",
+    # Default dev_url_template matches the keys rules_pg writes:
+    # "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=disable"
+)
+```
+
+Then:
+
+```sh
+bazel run //pkg/db:migrate-diff -- initial
+```
+
+The wrapper launches `pg_server` in the background, polls for its env file, expands the URL template via `envsubst`, exports `$ATLAS_DEV_URL`, `cd`s to `$BUILD_WORKING_DIRECTORY`, and exec's `atlas migrate diff --config file://atlas.hcl --env local initial`. Atlas writes a fresh migration file into the directory specified by `migration { dir = ... }` in `atlas.hcl`.
+
+**dev_service contract:** any executable target that, when launched with `RULES_PG_OUTPUT_ENV_FILE` honored (or fallback path `${TEST_TMPDIR:-/tmp}/<name>.env`), writes `KEY=VALUE` lines to that path once ready. `rules_pg`'s `pg_server` is the canonical implementation.
+
+**Runtime dependency:** `envsubst` (gettext-base on Debian/Ubuntu, preinstalled on GitHub Ubuntu runners).
 
 ## Install primitives
 

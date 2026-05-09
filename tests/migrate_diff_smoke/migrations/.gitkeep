@@ -1,0 +1,2 @@
+# Empty migrations directory — the smoke proves `atlas migrate diff`
+# emits a fresh migration here when the schema has not been applied yet.

@@ -1,0 +1,50 @@
+"""Smoke for atlas_migrate_diff_run.
+
+Composition (zero-cluster):
+  pg_server (rules_pg, hermetic Postgres) → atlas_migrate_diff_run
+
+The smoke runs the wrapper end-to-end against a real Postgres,
+asserts a migration file is emitted with the expected DDL.
+"""
+
+load("@rules_atlas//:defs.bzl", "atlas_migrate_diff_run")
+load("@rules_pg//:defs.bzl", "pg_server", "postgres_schema")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Atlas's `migrate diff` needs a dev URL to inspect the engine's
+# grammar + plan the diff. Spin up a hermetic Postgres via rules_pg.
+# postgres_schema with empty srcs creates an empty database — the
+# perfect dev DB (Atlas writes/drops temp tables for diff planning,
+# leaves no permanent state).
+postgres_schema(
+    name = "empty_schema",
+    srcs = [],
+)
+
+pg_server(
+    name = "dev_pg",
+    schema = ":empty_schema",
+)
+
+atlas_migrate_diff_run(
+    name = "migrate-diff",
+    atlas_config = "atlas.hcl",
+    migrations = glob(["migrations/*"]),
+    dev_service = ":dev_pg",
+    env = "local",
+)
+
+sh_test(
+    name = "migrate_diff_smoke_test",
+    srcs = ["smoke_test.sh"],
+    data = [
+        "atlas.hcl",
+        "schema.hcl",
+        ":migrate-diff",
+    ],
+    # rules_pg's pg_server uses `pg.system()` — host postgres binaries
+    # must be on PATH (initdb, pg_ctl, psql, pg_isready). On the GH
+    # ubuntu runner those are preinstalled. Tag accordingly so anyone
+    # without the prereq doesn't get a confusing failure.
+    tags = ["requires-postgres"],
+)

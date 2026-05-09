@@ -14,6 +14,7 @@ Install primitives (cluster-deploy via rules_kubectl):
   atlas_operator_install_health_check — paired readiness probe.
 """
 
+load("//private:atlas_migrate_diff_run.bzl", _atlas_migrate_diff_run = "atlas_migrate_diff_run")
 load("//private:atlas_migrate_lint.bzl", _atlas_migrate_lint_test = "atlas_migrate_lint_test")
 load("//private:atlas_operator_install.bzl",
      _atlas_operator_install = "atlas_operator_install",
@@ -26,6 +27,10 @@ atlas_schema_test = _atlas_schema_test
 # is the public surface (the underlying Atlas verb is still
 # `atlas migrate lint`).
 atlas_migrate_lint_test = _atlas_migrate_lint_test
+# Runnable companion to atlas_migrate_lint_test: drives `atlas migrate
+# diff` against a hermetic dev URL provided by a long-running
+# dev_service (typically rules_pg's pg_server).
+atlas_migrate_diff_run = _atlas_migrate_diff_run
 atlas_operator_install = _atlas_operator_install
 atlas_operator_install_health_check = _atlas_operator_install_health_check
 

@@ -23,11 +23,28 @@ jobs:
       # including darwin which can't be downloaded on a linux runner
       # without the right sha. Target specific paths instead — same
       # lesson rules_temporal v0.3 / rules_spicedb learned.
-      - name: bazel build (smoke target)
-        run: bazel build //tests/install_smoke:smoke_test
+      - name: bazel build (smoke targets)
+        run: |
+          bazel build \
+            //tests/install_smoke:smoke_test \
+            //tests/migrate_diff_smoke:migrate_diff_smoke_test
 
       - name: bazel test (CLI primitives)
         run: bazel test //tests:all --test_output=errors
+
+      # rules_pg's pg_server uses the host postgres binaries (initdb,
+      # pg_ctl, psql, pg_isready). Preinstalled on the GitHub
+      # ubuntu-latest runner — verify before launching the smoke.
+      - name: Verify postgres on PATH
+        run: |
+          set -euo pipefail
+          for bin in initdb pg_ctl psql pg_isready; do
+            command -v "$bin" >/dev/null || { echo "missing: $bin" >&2; exit 1; }
+          done
+          initdb --version
+
+      - name: bazel test (migrate-diff smoke)
+        run: bazel test //tests/migrate_diff_smoke:migrate_diff_smoke_test --test_output=errors
 
       - name: Upload test logs on failure
         if: failure()
