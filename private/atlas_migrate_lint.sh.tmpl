@@ -27,6 +27,12 @@ resolve() {
 }
 
 ATLAS="$(resolve '__ATLAS_BIN__')"
+
+# Atlas checks vercheck.ariga.io for a newer release on every run and prints
+# an upgrade / deprecation notice to stderr when one exists. That is a
+# network call in a test, and the notice is indistinguishable from lint
+# diagnostics on stderr (atlas_migrate_lint_test fails on any stderr).
+export ATLAS_NO_UPDATE_NOTIFIER=1 ATLAS_NO_UPGRADE_SUGGESTIONS=1
 DEV_URL='__DEV_URL__'
 LATEST_N='__LATEST_N__'
 DEV_SERVICE_REL='__DEV_SERVICE__'
