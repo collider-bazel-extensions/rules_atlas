@@ -10,6 +10,16 @@ Atlas's value-add is the schema-as-code workflow. Separating CLI from operator i
 
 Operational difference: the community build is dialect-strict. `atlas schema inspect --dev-url sqlite://...` against a postgres-typed HCL (e.g. `type = serial`) errors with "Unknown column.type". For consumers who need cross-engine validation, override `dev_url` to a `docker://postgres/16/test` URL — but that requires Docker on the runner.
 
+## No update checks from the CLI wrappers
+
+Every wrapper (`atlas_schema_test`, `atlas_migrate_lint_test`,
+`atlas_migrate_diff_run`) exports `ATLAS_NO_UPDATE_NOTIFIER=1` and
+`ATLAS_NO_UPGRADE_SUGGESTIONS=1`. Otherwise Atlas calls
+`vercheck.ariga.io` on each run, a network dependency in a test, and once a
+newer Atlas ships it prints an upgrade/deprecation notice to stderr.
+`atlas_migrate_lint_test` treats any stderr as lint diagnostics, so the
+notice failed clean lints as soon as Atlas 1.3.0 was released.
+
 ## Install: render-from-source, not OCI
 
 Atlas Operator's official install path is the OCI Helm chart `oci://ghcr.io/ariga/charts/atlas-operator`. There's no GitHub release asset (unlike temporal-operator / spicedb-operator).
