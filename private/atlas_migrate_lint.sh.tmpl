@@ -27,6 +27,9 @@ resolve() {
 }
 
 ATLAS="$(resolve '__ATLAS_BIN__')"
+# Defines envsubst (pure bash; no gettext on the host).
+# shellcheck disable=SC1090
+source "$(resolve '__ENVSUBST__')"
 
 # Atlas checks vercheck.ariga.io for a newer release on every run and prints
 # an upgrade / deprecation notice to stderr when one exists. That is a
@@ -98,11 +101,7 @@ if [[ -n "$DEV_SERVICE_REL" ]]; then
   source "$env_file"
   set +a
 
-  if ! command -v envsubst >/dev/null 2>&1; then
-    echo "[atlas_migrate_lint_test] \`envsubst\` not on PATH (gettext-base on Debian/Ubuntu)" >&2
-    exit 1
-  fi
-  DEV_URL="$(printf '%s' "$DEV_URL_TEMPLATE" | envsubst)"
+  DEV_URL="$(envsubst "$DEV_URL_TEMPLATE")"
 fi
 
 # `atlas migrate lint` requires either `--git-base` or `--latest N`.
@@ -118,20 +117,26 @@ else
   args+=(--latest "$total")
 fi
 
-# `atlas migrate lint` exits 0 even when diagnostics are emitted unless
-# `--config` rules them as errors. The default ruleset reports issues
-# but doesn't fail. Promote any non-empty diagnostic stream to a
-# failure: capture stderr, fail if non-empty.
+# `atlas migrate lint` exits non-zero only for diagnostics its analyzers
+# rate as errors (e.g. destructive changes); warnings such as data-dependent
+# changes print to stdout with exit 0. Print only the diagnostics, one per
+# line, and fail when there are any: any output, on either stream, fails
+# the test. Suppress an accepted diagnostic in the migration file with
+# `-- atlas:nolint [CODE ...]` above the statement.
+format='{{- range .Files }}{{- $f := .Name }}{{- range .Reports }}{{- range .Diagnostics }}'
+format+='{{ $f }}: {{ .Code }}: {{ .Text }}{{ "\n" }}'
+format+='{{- range .SuggestedFixes }}{{ $f }}:   suggested fix: {{ .Message }}{{ "\n" }}{{- end }}'
+format+='{{- end }}{{- end }}{{- if .Error }}{{ $f }}: {{ .Error }}{{ "\n" }}{{- end }}{{- end }}'
+args+=(--format "$format")
+
 log=$(mktemp)
-if ! "$ATLAS" migrate lint "${args[@]}" 2>"$log"; then
+rc=0
+"$ATLAS" migrate lint "${args[@]}" >"$log" 2>&1 || rc=$?
+if (( rc != 0 )) || [[ -s "$log" ]]; then
   cat "$log" >&2
   rm -f "$log"
-  exit 1
-fi
-if [[ -s "$log" ]]; then
-  cat "$log" >&2
-  rm -f "$log"
-  echo "atlas_migrate_lint_test: diagnostics above were treated as failures" >&2
+  echo "atlas_migrate_lint_test: atlas migrate lint reported the diagnostics above (exit $rc)." >&2
+  echo "  Fix the migration, or accept a diagnostic with '-- atlas:nolint <CODE>' above the statement." >&2
   exit 1
 fi
 rm -f "$log"

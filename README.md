@@ -13,7 +13,7 @@ Bazel rules for [Atlas](https://atlasgo.io) — declarative database schema mana
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_atlas", version = "0.3.0")
+bazel_dep(name = "rules_atlas", version = "0.4.0")
 
 atlas = use_extension("@rules_atlas//:extensions.bzl", "atlas")
 atlas.version(version = "1.2.0")
@@ -77,6 +77,25 @@ atlas_migrate_lint_test(
 )
 ```
 
+**Any lint diagnostic fails `atlas_migrate_lint_test`**, whatever its
+severity. Atlas itself exits non-zero only for errors (destructive changes
+such as `DS102`); warnings such as data-dependent changes (`MF101`, `MF103`)
+print with exit 0. The test prints one line per diagnostic:
+
+```
+20260102000000_email.sql: MF103: Adding a non-nullable "text" column "email" will fail in case table "users" is not empty
+```
+
+To accept one, add an [`atlas:nolint`](https://atlasgo.io/lint/analyzers)
+directive above the statement in the migration file:
+
+```sql
+-- atlas:nolint MF103
+ALTER TABLE users ADD COLUMN email text NOT NULL;
+```
+
+(Before v0.4.0, warnings passed silently.)
+
 ### `atlas_migrate_diff_run` (v0.2)
 
 `bazel run`-shaped — invokes `atlas migrate diff` against a hermetic dev URL provided by a long-running `dev_service` target. Useful for developer-time migration generation:
@@ -105,11 +124,11 @@ Then:
 bazel run //pkg/db:migrate-diff -- initial
 ```
 
-The wrapper launches `pg_server` in the background, polls for its env file, expands the URL template via `envsubst`, exports `$ATLAS_DEV_URL`, `cd`s to `$BUILD_WORKING_DIRECTORY`, and exec's `atlas migrate diff --config file://atlas.hcl --env local initial`. Atlas writes a fresh migration file into the directory specified by `migration { dir = ... }` in `atlas.hcl`.
+The wrapper launches `pg_server` in the background, polls for its env file, expands the URL template (`${VAR}` / `$VAR` from the env file; pure bash, no `eval`), exports `$ATLAS_DEV_URL`, `cd`s to `$BUILD_WORKING_DIRECTORY`, and exec's `atlas migrate diff --config file://atlas.hcl --env local initial`. Atlas writes a fresh migration file into the directory specified by `migration { dir = ... }` in `atlas.hcl`.
 
 **dev_service contract:** any executable target that, when launched with `RULES_PG_OUTPUT_ENV_FILE` honored (or fallback path `${TEST_TMPDIR:-/tmp}/<name>.env`), writes `KEY=VALUE` lines to that path once ready. `rules_pg`'s `pg_server` is the canonical implementation.
 
-**Runtime dependency:** `envsubst` (gettext-base on Debian/Ubuntu, preinstalled on GitHub Ubuntu runners).
+**No host `envsubst` needed** (since v0.4.0): the wrappers expand the template with a bash function, `private/envsubst.bash`, instead of gettext's `envsubst`.
 
 ## Install primitives
 

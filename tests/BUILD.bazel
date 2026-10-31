@@ -1,6 +1,7 @@
 """In-tree analysis + CLI tests for rules_atlas."""
 
 load("@rules_atlas//:defs.bzl", "atlas_migrate_lint_test", "atlas_schema_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 # ---- atlas_schema_test ------------------------------------------------------
 
@@ -30,4 +31,55 @@ atlas_schema_test(
 atlas_migrate_lint_test(
     name = "migrations_lint_test",
     migrations = glob(["migrations/*.sql"]),
+)
+
+# Diagnostics fail the test whatever their severity. Atlas exits 0 for
+# warnings (MF103 below) and 1 for errors (DS102); the wrapper fails on both.
+# The two failing targets are `manual` and run by lint_fails_test.sh.
+atlas_migrate_lint_test(
+    name = "lint_warning",
+    migrations = glob(["lint_diagnostics/warning/*.sql"]),
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "lint_warning_fails_test",
+    srcs = ["lint_fails_test.sh"],
+    args = [
+        "$(rootpath :lint_warning)",
+        "MF103",
+    ],
+    data = [":lint_warning"],
+)
+
+atlas_migrate_lint_test(
+    name = "lint_destructive",
+    migrations = glob(["lint_diagnostics/destructive/*.sql"]),
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "lint_destructive_fails_test",
+    srcs = ["lint_fails_test.sh"],
+    args = [
+        "$(rootpath :lint_destructive)",
+        "DS102",
+    ],
+    data = [":lint_destructive"],
+)
+
+# The same warning, accepted with `-- atlas:nolint MF103`, passes.
+atlas_migrate_lint_test(
+    name = "lint_nolint_test",
+    migrations = glob(["lint_diagnostics/nolint/*.sql"]),
+)
+
+# ---- envsubst ---------------------------------------------------------------
+
+# The pure-bash envsubst the wrappers use for dev_url_template.
+sh_test(
+    name = "envsubst_test",
+    srcs = ["envsubst_test.sh"],
+    args = ["$(rootpath //private:envsubst.bash)"],
+    data = ["//private:envsubst.bash"],
 )

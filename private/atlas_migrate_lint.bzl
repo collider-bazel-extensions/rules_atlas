@@ -16,7 +16,7 @@ Two ways to provide the dev URL:
      dev-DB target (typically rules_pg's `pg_server`). The wrapper
      launches it in the background, polls for the convention env
      file at `${TEST_TMPDIR:-/tmp}/<dev_service.name>.env`, expands
-     the URL template via `envsubst`, then runs atlas migrate lint
+     the URL template (pure-bash envsubst), then runs atlas migrate lint
      against that URL. Same mechanism as `atlas_migrate_diff_run`.
      Use this for postgres-flavored migrations (JSONB, gen_random_uuid,
      etc.) that can't lint against sqlite.
@@ -25,6 +25,10 @@ The rule passes the migrations directory as `--dir file://<dir>` and
 runs against the *latest* migration (`--latest 1`) by default, since
 the typical CI gate is "did the last commit introduce a destructive
 change?" Override `latest_n` for fuller scope.
+
+Every diagnostic fails the test, warnings included (atlas itself exits 0
+for warnings). Accept one with `-- atlas:nolint [CODE ...]` above the
+statement in the migration file.
 """
 
 def _impl(ctx):
@@ -54,10 +58,11 @@ def _impl(ctx):
         "__LATEST_N__": str(ctx.attr.latest_n),
         "__DEV_SERVICE__": "",
         "__DEV_SERVICE_NAME__": "",
+        "__ENVSUBST__": ctx.file._envsubst.short_path,
         "__DEV_URL_TEMPLATE__": "",
     }
 
-    runfiles_files = [atlas_bin] + ctx.files.migrations
+    runfiles_files = [atlas_bin, ctx.file._envsubst] + ctx.files.migrations
 
     if ctx.attr.dev_service:
         dev_service_executable = ctx.executable.dev_service
@@ -102,14 +107,14 @@ atlas_migrate_lint_test = rule(
             doc = "Optional long-running dev-DB service target. When set, " +
                   "the wrapper launches it in the background, polls for " +
                   "`${TEST_TMPDIR:-/tmp}/<name>.env`, expands `dev_url_template` " +
-                  "via envsubst, and uses that as the `--dev-url` (overriding " +
+                  "with a pure-bash envsubst, and uses that as the `--dev-url` (overriding " +
                   "any `dev_url` value). `rules_pg`'s `pg_server` is the " +
                   "canonical implementation.",
         ),
         "dev_url_template": attr.string(
             default = "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=disable",
             doc = "URL template with `${VAR}` placeholders, expanded via " +
-                  "envsubst against the `dev_service` env file. Default " +
+                  "a pure-bash envsubst against the `dev_service` env file. Default " +
                   "matches the keys `rules_pg`'s `pg_server` writes. " +
                   "Ignored when `dev_service` is unset.",
         ),
@@ -119,6 +124,10 @@ atlas_migrate_lint_test = rule(
                   "Default 1 matches the typical PR-gate use case (\"did " +
                   "this commit add a destructive change?\"); set to 0 to " +
                   "lint the entire dir.",
+        ),
+        "_envsubst": attr.label(
+            default = "//private:envsubst.bash",
+            allow_single_file = True,
         ),
         "_tmpl": attr.label(
             default = "//private:atlas_migrate_lint.sh.tmpl",
