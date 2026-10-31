@@ -58,6 +58,15 @@ jobs:
             //tests/migrate_diff_smoke:migrate_diff_smoke_test \
             //tests/migrate_lint_pg_smoke:lint_pg_smoke_test
 
+      # The wrappers expand dev_url_template with private/envsubst.bash.
+      # Delete gettext's envsubst so a regression to the host tool fails
+      # here (rules_atlas#6).
+      - name: Remove host envsubst
+        run: |
+          set -euo pipefail
+          sudo rm -f /usr/bin/envsubst /usr/local/bin/envsubst /bin/envsubst
+          if command -v envsubst; then echo "envsubst still on PATH" >&2; exit 1; fi
+
       - name: bazel test (CLI primitives)
         run: bazel test //tests:all --test_output=errors
 

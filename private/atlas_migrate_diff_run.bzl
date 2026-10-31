@@ -9,7 +9,7 @@ Generates a sh_binary-shaped wrapper. Under `bazel run`:
   3. Poll for `<state-dir>/<dev_service.name>.env` (the convention
      `rules_pg`'s `pg_server` follows when handed
      `RULES_PG_OUTPUT_ENV_FILE`).
-  4. Source the env file. Expand `dev_url_template` via `envsubst`
+  4. Source the env file. Expand `dev_url_template` with a pure-bash envsubst
      against the now-set env vars; export as `ATLAS_DEV_URL`.
   5. cd into `BUILD_WORKING_DIRECTORY` (the user's invocation cwd
      under `bazel run`; falls back to PWD).
@@ -47,6 +47,7 @@ def _impl(ctx):
             "__DEV_SERVICE_NAME__": dev_service_name,
             "__DEV_URL_TEMPLATE__": ctx.attr.dev_url_template,
             "__ATLAS_CONFIG__": ctx.file.atlas_config.short_path,
+            "__ENVSUBST__": ctx.file._envsubst.short_path,
             "__ATLAS_ENV__": ctx.attr.env,
         },
         is_executable = True,
@@ -55,6 +56,7 @@ def _impl(ctx):
     runfiles = ctx.runfiles(
         files = [
             atlas_bin,
+            ctx.file._envsubst,
             ctx.file.atlas_config,
         ] + ctx.files.migrations,
     )
@@ -92,7 +94,7 @@ atlas_migrate_diff_run = rule(
         "dev_url_template": attr.string(
             default = "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=disable",
             doc = "Atlas dev URL with `${VAR}` placeholders. Expanded via " +
-                  "`envsubst` against the env file's contents after the " +
+                  "a pure-bash envsubst (private/envsubst.bash) against the env file's contents after the " +
                   "dev_service writes it. Default matches the keys " +
                   "`rules_pg`'s `pg_server` writes (PGHOST/PGPORT/" +
                   "PGDATABASE/PGUSER/PGPASSWORD).",
@@ -100,6 +102,10 @@ atlas_migrate_diff_run = rule(
         "env": attr.string(
             default = "local",
             doc = "Atlas env section name (`atlas migrate diff --env <env>`).",
+        ),
+        "_envsubst": attr.label(
+            default = "//private:envsubst.bash",
+            allow_single_file = True,
         ),
         "_tmpl": attr.label(
             default = "//private:atlas_migrate_diff_run.sh.tmpl",
