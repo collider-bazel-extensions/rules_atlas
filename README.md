@@ -13,7 +13,7 @@ Bazel rules for [Atlas](https://atlasgo.io) — declarative database schema mana
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_atlas", version = "0.4.0")
+bazel_dep(name = "rules_atlas", version = "0.5.0")
 
 atlas = use_extension("@rules_atlas//:extensions.bzl", "atlas")
 atlas.version(version = "1.2.0")
@@ -95,6 +95,38 @@ ALTER TABLE users ADD COLUMN email text NOT NULL;
 ```
 
 (Before v0.4.0, warnings passed silently.)
+
+**Project config (v0.5.0).** `config` passes your `atlas.hcl` as `--config` and `env` selects an env, so its `lint {}` block applies in `bazel test` as on a developer's machine:
+
+```python
+atlas_migrate_lint_test(
+    name = "migrations_lint_test",
+    migrations = glob(["migrations/*.sql"]),
+    config = "atlas.hcl",
+    env = "ci",                 # optional
+    fail_on_warnings = False,   # let the lint block's error levels decide
+)
+```
+
+- **Severity, not visibility.** A `lint {}` block sets analyzer error levels. For example, `data_depend { error = true }` makes `MF103` an error, and `destructive { error = false }` makes `DS102` a warning. Atlas prints the diagnostic either way. So with the default `fail_on_warnings = True`, any diagnostic still fails the test, and the config only matters with `fail_on_warnings = False`, where atlas's verdict stands and warnings are printed.
+- **Env vs top-level `lint`.** An env's own `lint {}` block *replaces* the top-level one; the two aren't merged.
+- **The rule's flags win.** `--dir`, `--dev-url` (from `dev_url` / `dev_service`) and `--latest` always come from the rule, overriding the env's `migration { dir }`, `dev` and `latest`.
+- **Relative paths** inside `atlas.hcl` resolve against the working directory, which is the runfiles root (the workspace root), not the file's own directory. List files the config reads in `data`. `getenv()` sees the test's environment (`env` / `--test_env`).
+- **Atlas ignores unknown keys** in a `lint {}` block, so a typo like `errr = true` silently has no effect.
+- **The community build** has the core analyzers (destructive, data-dependent, backward-incompatible). `naming` and other Pro analyzers do nothing in it.
+
+**Empty migration sets (v0.5.0).** An empty `migrations` list is an error, unless `allow_empty = True`. Then the test passes and says no migrations were linted, so a lint target can exist before a directory's first migration. Bazel refuses an empty `glob` by default, so use `glob(["tenant_migrations/*.sql"], allow_empty = True)`.
+
+| `atlas_migrate_lint_test` attribute | Default | |
+|---|---|---|
+| `migrations` | | `*.sql` files in one directory |
+| `dev_url` / `dev_service` / `dev_url_template` | sqlite in memory | the dev database (above) |
+| `latest_n` | `1` | trailing migrations to lint; `0` = all |
+| `config` | none | an `atlas.hcl` (`--config`) |
+| `env` | none | an env in `config` (`--env`) |
+| `fail_on_warnings` | `True` | `False`: only diagnostics atlas rates as errors fail |
+| `allow_empty` | `False` | pass, with a note, when `migrations` is empty |
+| `data` | `[]` | files `config` reads |
 
 ### `atlas_migrate_diff_run` (v0.2)
 

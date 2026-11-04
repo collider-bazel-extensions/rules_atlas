@@ -2,6 +2,7 @@
 
 load("@rules_atlas//:defs.bzl", "atlas_migrate_lint_test", "atlas_schema_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(":analysis_tests.bzl", "analysis_test_suite")
 
 # ---- atlas_schema_test ------------------------------------------------------
 
@@ -73,6 +74,111 @@ atlas_migrate_lint_test(
     name = "lint_nolint_test",
     migrations = glob(["lint_diagnostics/nolint/*.sql"]),
 )
+
+# ---- project config (atlas.hcl) ---------------------------------------------
+
+# fail_on_warnings = False: atlas's verdict, i.e. the lint block, decides.
+# Without a config MF103 is a warning, so it passes ...
+atlas_migrate_lint_test(
+    name = "lint_warning_lenient_test",
+    fail_on_warnings = False,
+    migrations = glob(["lint_diagnostics/warning/*.sql"]),
+)
+
+# ... and a lint block that makes data-dependent changes errors fails it.
+atlas_migrate_lint_test(
+    name = "lint_config_strict",
+    config = "lint_config/strict.hcl",
+    fail_on_warnings = False,
+    migrations = glob(["lint_diagnostics/warning/*.sql"]),
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "lint_config_strict_fails_test",
+    srcs = ["lint_fails_test.sh"],
+    args = [
+        "$(rootpath :lint_config_strict)",
+        "MF103",
+    ],
+    data = [":lint_config_strict"],
+)
+
+# A lint block that makes destructive changes warnings passes DS102 ...
+atlas_migrate_lint_test(
+    name = "lint_config_lenient_test",
+    config = "lint_config/lenient.hcl",
+    fail_on_warnings = False,
+    migrations = glob(["lint_diagnostics/destructive/*.sql"]),
+)
+
+# ... but with the default fail_on_warnings, any diagnostic still fails.
+atlas_migrate_lint_test(
+    name = "lint_config_lenient_default",
+    config = "lint_config/lenient.hcl",
+    migrations = glob(["lint_diagnostics/destructive/*.sql"]),
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "lint_config_lenient_default_fails_test",
+    srcs = ["lint_fails_test.sh"],
+    args = [
+        "$(rootpath :lint_config_lenient_default)",
+        "DS102",
+    ],
+    data = [":lint_config_lenient_default"],
+)
+
+# An env's lint block applies with `env`; its dev / dir lose to the rule's.
+atlas_migrate_lint_test(
+    name = "lint_config_env",
+    config = "lint_config/envs.hcl",
+    env = "ci",
+    fail_on_warnings = False,
+    migrations = glob(["lint_diagnostics/warning/*.sql"]),
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "lint_config_env_fails_test",
+    srcs = ["lint_fails_test.sh"],
+    args = [
+        "$(rootpath :lint_config_env)",
+        "MF103",
+    ],
+    data = [":lint_config_env"],
+)
+
+# The same config without `env`: no top-level lint block, MF103 a warning.
+atlas_migrate_lint_test(
+    name = "lint_config_env_unselected_test",
+    config = "lint_config/envs.hcl",
+    fail_on_warnings = False,
+    migrations = glob(["lint_diagnostics/warning/*.sql"]),
+)
+
+# ---- empty migration sets -----------------------------------------------------
+
+atlas_migrate_lint_test(
+    name = "lint_empty",
+    allow_empty = True,
+    migrations = glob(
+        ["lint_diagnostics/no_migrations_yet/*.sql"],
+        allow_empty = True,
+    ),
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "lint_empty_test",
+    srcs = ["lint_empty_test.sh"],
+    args = ["$(rootpath :lint_empty)"],
+    data = [":lint_empty"],
+)
+
+# Refused empty sets, env without config.
+analysis_test_suite(name = "analysis_tests")
 
 # ---- envsubst ---------------------------------------------------------------
 

@@ -28,15 +28,40 @@ change?" Override `latest_n` for fuller scope.
 
 Every diagnostic fails the test, warnings included (atlas itself exits 0
 for warnings). Accept one with `-- atlas:nolint [CODE ...]` above the
-statement in the migration file.
+statement in the migration file. With `fail_on_warnings = False`, only
+atlas's own verdict counts: diagnostics its analyzers rate as errors.
+
+`config` (an atlas.hcl) and `env` pass `--config file://<path>` and
+`--env <name>`, so the project's `lint {}` block (analyzer error levels)
+applies at build time as it does by hand. The rule's own flags win over
+the env's values: `--dir`, `--dev-url` and `--latest` always come from
+the rule. Relative paths inside atlas.hcl resolve against the working
+directory (the runfiles root, i.e. the workspace root), not the file's
+own directory.
+
+An empty `migrations` list is refused unless `allow_empty = True`; then
+the test passes, noting that nothing was linted.
+"""
+
+_NOTHING_TO_LINT = """#!/usr/bin/env bash
+echo "atlas_migrate_lint_test {label}: no migrations to lint (allow_empty = True); passing."
 """
 
 def _impl(ctx):
     tc = ctx.toolchains["//toolchain:atlas"]
     atlas_bin = tc.atlas.atlas_bin
 
+    if ctx.attr.env and not ctx.file.config:
+        fail("atlas_migrate_lint_test {}: env = {} needs config (the atlas.hcl that defines it)".format(
+            ctx.label, repr(ctx.attr.env)))
     if not ctx.files.migrations:
-        fail("atlas_migrate_lint_test {}: migrations must be non-empty".format(ctx.label))
+        if not ctx.attr.allow_empty:
+            fail(("atlas_migrate_lint_test {}: migrations is empty. Set allow_empty = True to " +
+                  "pass until the first migration lands (glob(..., allow_empty = True) " +
+                  "for an empty directory).").format(ctx.label))
+        out = ctx.actions.declare_file(ctx.label.name + ".sh")
+        ctx.actions.write(out, _NOTHING_TO_LINT.replace("{label}", str(ctx.label)), is_executable = True)
+        return [DefaultInfo(executable = out)]
 
     # All migrations files share a common parent directory (validated
     # at runtime by `atlas migrate lint`). Pass each file's
@@ -60,9 +85,14 @@ def _impl(ctx):
         "__DEV_SERVICE_NAME__": "",
         "__ENVSUBST__": ctx.file._envsubst.short_path,
         "__DEV_URL_TEMPLATE__": "",
+        "__CONFIG__": ctx.file.config.short_path if ctx.file.config else "",
+        "__ENV_NAME__": ctx.attr.env,
+        "__FAIL_ON_WARNINGS__": "1" if ctx.attr.fail_on_warnings else "",
     }
 
-    runfiles_files = [atlas_bin, ctx.file._envsubst] + ctx.files.migrations
+    runfiles_files = [atlas_bin, ctx.file._envsubst] + ctx.files.migrations + ctx.files.data
+    if ctx.file.config:
+        runfiles_files.append(ctx.file.config)
 
     if ctx.attr.dev_service:
         dev_service_executable = ctx.executable.dev_service
@@ -91,6 +121,32 @@ atlas_migrate_lint_test = rule(
             mandatory = True,
             doc = "Migration files (`*.sql`). All must live in the same " +
                   "directory — the rule passes the dirname to `--dir`.",
+        ),
+        "allow_empty": attr.bool(
+            default = False,
+            doc = "Pass, with a note, when `migrations` is empty (a directory " +
+                  "with no migrations yet). Default: an empty list is an error.",
+        ),
+        "config": attr.label(
+            allow_single_file = [".hcl"],
+            doc = "A project config (atlas.hcl), passed as `--config file://...`. " +
+                  "Its `lint {}` block (or the env's) sets analyzer error " +
+                  "levels. `--dir`, `--dev-url` and `--latest` still come from " +
+                  "this rule and override the env's values.",
+        ),
+        "env": attr.string(
+            doc = "An env in `config`, passed as `--env`. An env's own `lint {}` " +
+                  "block replaces the top-level one.",
+        ),
+        "fail_on_warnings": attr.bool(
+            default = True,
+            doc = "True (default): any diagnostic fails the test. False: only " +
+                  "diagnostics atlas rates as errors (per the `lint {}` block) " +
+                  "fail it; warnings are printed.",
+        ),
+        "data": attr.label_list(
+            allow_files = True,
+            doc = "Files `config` reads (e.g. through `file(...)`), as runfiles.",
         ),
         "dev_url": attr.string(
             default = "sqlite://?mode=memory&_fk=1",

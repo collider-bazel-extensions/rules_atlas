@@ -41,6 +41,9 @@ LATEST_N='__LATEST_N__'
 DEV_SERVICE_REL='__DEV_SERVICE__'
 DEV_SERVICE_NAME='__DEV_SERVICE_NAME__'
 DEV_URL_TEMPLATE='__DEV_URL_TEMPLATE__'
+CONFIG_REL='__CONFIG__'
+ENV_NAME='__ENV_NAME__'
+FAIL_ON_WARNINGS='__FAIL_ON_WARNINGS__'
 
 inputs=()
 for p in __INPUTS__; do
@@ -107,6 +110,17 @@ fi
 # `atlas migrate lint` requires either `--git-base` or `--latest N`.
 # We use --latest, since git refs aren't available under `bazel test`.
 args=(--dev-url "$DEV_URL" --dir "file://$mig_dir")
+# The project's atlas.hcl: its lint block sets analyzer error levels. The
+# flags above (and --latest below) override an env's dev / dir / latest.
+if [[ -n "$CONFIG_REL" ]]; then
+  # Resolved into a variable first: a failing $(resolve) inside an
+  # argument list would not stop the script under `set -e`.
+  config="$(resolve "$CONFIG_REL")"
+  args+=(--config "file://$config")
+  if [[ -n "$ENV_NAME" ]]; then
+    args+=(--env "$ENV_NAME")
+  fi
+fi
 if [[ "$LATEST_N" -gt 0 ]]; then
   args+=(--latest "$LATEST_N")
 else
@@ -132,6 +146,15 @@ args+=(--format "$format")
 log=$(mktemp)
 rc=0
 "$ATLAS" migrate lint "${args[@]}" >"$log" 2>&1 || rc=$?
+if [[ -z "$FAIL_ON_WARNINGS" ]] && (( rc == 0 )); then
+  # fail_on_warnings = False: atlas's verdict (per the lint block) stands.
+  if [[ -s "$log" ]]; then
+    cat "$log"
+    echo "atlas_migrate_lint_test: warnings above (not errors under the lint config; fail_on_warnings = False)."
+  fi
+  rm -f "$log"
+  exit 0
+fi
 if (( rc != 0 )) || [[ -s "$log" ]]; then
   cat "$log" >&2
   rm -f "$log"

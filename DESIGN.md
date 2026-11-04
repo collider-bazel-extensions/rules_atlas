@@ -110,6 +110,20 @@ next to the SQL it excuses and reviewable in the PR, which a rule attribute
 `//tests:lint_destructive_fails_test` and `//tests:lint_nolint_test` cover
 the three cases.
 
+## Project config: `config`, `env`, `fail_on_warnings` (v0.5)
+
+rules_atlas#10 asked for the project's `atlas.hcl` lint block to apply at build time. These were checked against atlas community v1.2.0:
+
+- **What a `lint {}` block changes.** Analyzer error levels, i.e. atlas's exit code: `data_depend { error = true }` turns MF103 into exit 1, and `destructive { error = false }` turns DS102 into exit 0. The diagnostic is printed either way. Since v0.4 the wrapper fails on any diagnostic, so error levels alone change nothing. Hence `fail_on_warnings = False`, which makes atlas's exit code, and so the lint block, the verdict. The default stays `True`, so v0.4 behaviour is unchanged.
+- **Flags vs env.** `--dev-url`, `--dir` and `--latest` given on the command line override an env's `dev`, `migration { dir }` and `latest`. Tested with an env whose `dev` and `dir` point nowhere; the rule's flags were used. The rule always passes all three, so only the env's `lint` block (and anything else the rule doesn't set) comes from the config.
+- **Env lint replaces top-level lint.** With `--env`, an env-level `lint {}` block replaces the top-level one rather than merging with it.
+- **Relative paths.** A relative `file://migrations` in an env resolves against the working directory, not the hcl file's directory. Under `bazel test` that's the runfiles root.
+- **Unknown keys.** Atlas silently ignores unknown keys in a lint block (`errr = true`). `naming` (Pro) does nothing in the community build.
+
+`//tests:lint_config_*` cover each case: strict (MF103 fails), lenient (DS102 passes), lenient with the default `fail_on_warnings` (fails), and an env's lint block applying only with `env`. Removing `--config` from the wrapper fails exactly the three tests that depend on it; this was checked by hand.
+
+**Empty sets.** An empty `migrations` list is an analysis error that names `allow_empty`. With `allow_empty = True`, the rule emits a script that passes and says no migrations were linted. It doesn't launch `dev_service` or run atlas: there is nothing to lint, and atlas needs a directory.
+
 ## What this repo does not (yet) do
 
 - **`AtlasMigration` CR**: same operator handles versioned migrations (the second consumer-facing CRD). Consumers can apply the CR directly while the install macro waits on the same CRDs.
