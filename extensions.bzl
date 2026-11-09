@@ -8,29 +8,55 @@ based on the resolved exec/target platform.
 """
 
 load("//private:repositories.bzl", "atlas_binary_repo")
-load("//private:versions.bzl", "PLATFORMS")
+load("//private:versions.bzl", "ATLAS_VERSIONS", "DEFAULT_VERSION", "PLATFORMS")
 
 _version_tag = tag_class(attrs = {
     "version": attr.string(mandatory = True),
 })
 
-def _impl(mctx):
-    # Only honor `version` tags from the root module. Without this guard,
-    # both rules_atlas (when consumed as a dep) and the consumer would
-    # each emit `@atlas_<plat>` repos and Bazel would collide them. The
-    # library's own MODULE.bazel still needs `atlas.version(...)` so its
-    # in-tree tests can build, but that only fires when rules_atlas
-    # itself is the root.
+def _select_version(mctx):
+    """The one Atlas version to fetch.
+
+    The extension runs once for the whole build and sees every module's
+    tags, but the repos it creates (`atlas_<plat>`) are global, so it
+    must pick a single version and create each repo once. The root
+    module's `atlas.version()` wins; without one, rules_atlas's own
+    (from its MODULE.bazel, which imports these repos and registers the
+    toolchain for every consumer — rules_atlas#12); without that,
+    DEFAULT_VERSION. Other modules' tags are ignored.
+    """
+    root = []
+    own = []
     for mod in mctx.modules:
-        if not mod.is_root:
-            continue
-        for tag in mod.tags.version:
-            for plat in PLATFORMS.keys():
-                atlas_binary_repo(
-                    name = "atlas_" + plat,
-                    version = tag.version,
-                    platform = plat,
-                )
+        versions = [tag.version for tag in mod.tags.version]
+        if mod.is_root:
+            root = versions
+        elif mod.name == "rules_atlas":
+            own = versions
+    for candidates, who in [(root, "the root module"), (own, "rules_atlas")]:
+        distinct = sorted({v: None for v in candidates}.keys())
+        if len(distinct) > 1:
+            fail("rules_atlas: {} sets atlas.version() to more than one version ({}); set one.".format(
+                who,
+                ", ".join(distinct),
+            ))
+        if distinct:
+            return distinct[0]
+    return DEFAULT_VERSION
+
+def _impl(mctx):
+    version = _select_version(mctx)
+    if version not in ATLAS_VERSIONS:
+        fail("rules_atlas: atlas.version(version = \"{}\") is not supported. Supported: {}".format(
+            version,
+            ", ".join(sorted(ATLAS_VERSIONS.keys())),
+        ))
+    for plat in PLATFORMS.keys():
+        atlas_binary_repo(
+            name = "atlas_" + plat,
+            version = version,
+            platform = plat,
+        )
 
 atlas = module_extension(
     implementation = _impl,
