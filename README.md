@@ -13,23 +13,23 @@ Bazel rules for [Atlas](https://atlasgo.io) — declarative database schema mana
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_atlas", version = "0.5.0")
-
-atlas = use_extension("@rules_atlas//:extensions.bzl", "atlas")
-atlas.version(version = "1.2.0")
-use_repo(
-    atlas,
-    "atlas_darwin_amd64",
-    "atlas_darwin_arm64",
-    "atlas_linux_amd64",
-    "atlas_linux_arm64",
-)
-register_toolchains("@rules_atlas//toolchain:all")
+bazel_dep(name = "rules_atlas", version = "0.5.1")
 ```
 
-The `atlas` extension is `mod.is_root`-guarded — only the root module's `atlas.version()` tags fire — so consumers must declare it themselves rather than inheriting it from rules_atlas's own `MODULE.bazel`. (The guard prevents `@atlas_<plat>` repo-name collisions when rules_atlas is consumed both as a direct and transitive dep.) Same pattern as `rules_capsule`, `rules_temporal`, and other `mod.is_root`-guarded sibling rule sets in this org.
+That's all: rules_atlas's own `MODULE.bazel` fetches the Atlas CLI and registers the toolchain. rules_atlas is not in the BCR yet, so pin it (and `rules_kubectl`, below) with `archive_override` or `git_override`.
 
-The install primitives also require [`rules_kubectl`](https://github.com/collider-bazel-extensions/rules_kubectl) ≥ 0.2.0 (transitive — the macros are thin wrappers around `kubectl_apply`).
+To choose the Atlas version, set it in your root module:
+
+```python
+atlas = use_extension("@rules_atlas//:extensions.bzl", "atlas")
+atlas.version(version = "1.2.0")
+```
+
+The extension fetches one version for the whole build: the root module's `atlas.version()` if it sets one, otherwise rules_atlas's own (the default, `1.2.0`). Other modules' tags are ignored. Setting two different versions in the root, or a version rules_atlas doesn't pin (`private/versions.bzl`), fails with a message naming `atlas.version`. Before v0.5.1 the root had to set `atlas.version()`, or resolution failed with `does not generate repository "atlas_linux_amd64"` (#12); the extra `use_repo(...)` / `register_toolchains(...)` lines that earlier READMEs asked for are harmless but no longer needed.
+
+The release archive (the tag tarball) leaves out `tests/` and `tools/`, whose packages load dev-only modules, so `bazel query @rules_atlas//...` works for consumers. A `git_override` clone still contains them; name packages instead (for example `@rules_atlas//:all`).
+
+The install primitives also require [`rules_kubectl`](https://github.com/collider-bazel-extensions/rules_kubectl) ≥ 0.2.0, a transitive dependency: the macros are thin wrappers around `kubectl_apply`. Pin it in your root module too, because rules_atlas's own `git_override` for it applies only when rules_atlas is the root.
 
 ### Atlas community vs Atlas Pro
 

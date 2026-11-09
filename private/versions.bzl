@@ -15,6 +15,9 @@ Maintainer flow:
     bash tools/update_versions.sh <version>
 """
 
+# Used when no module sets atlas.version(...).
+DEFAULT_VERSION = "1.2.0"
+
 ATLAS_VERSIONS = {
     "1.2.0": {
         "linux_amd64": {

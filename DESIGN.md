@@ -124,6 +124,20 @@ rules_atlas#10 asked for the project's `atlas.hcl` lint block to apply at build 
 
 **Empty sets.** An empty `migrations` list is an analysis error that names `allow_empty`. With `allow_empty = True`, the rule emits a script that passes and says no migrations were linted. It doesn't launch `dev_service` or run atlas: there is nothing to lint, and atlas needs a directory.
 
+## One Atlas version per build; no root tag needed (v0.5.1)
+
+The `atlas` extension runs once for the whole build and sees every module's `atlas.version()` tags, but the `atlas_<plat>` repos it creates are global to the extension, so it picks one version and creates each repo once: the root module's tag, else rules_atlas's own (in its `MODULE.bazel`), else `DEFAULT_VERSION` (`private/versions.bzl`). Other modules' tags are ignored.
+
+Through v0.5.0 the extension honoured only the root's tags (`if not mod.is_root: continue`), on the theory that the library's and the consumer's tags would otherwise collide. They don't: the only collision was the extension itself creating a repo twice, which a root with two `atlas.version()` lines still triggered. Meanwhile rules_atlas's own `MODULE.bazel` imports the repos and registers the toolchain for every consumer, so a root without a tag failed to resolve (`does not generate repository "atlas_linux_amd64"`, #12). Two different versions in one module, or one not in `ATLAS_VERSIONS`, now fail with a message naming `atlas.version`.
+
+`toolchain/BUILD.bazel` still states `version = "1.2.0"` on each `atlas_toolchain`; with a single pinned version that matches, but adding a second version to `ATLAS_VERSIONS` needs the toolchain version to follow the selected one.
+
+CI's `consumer` job (`.github/consumer/check.sh`) runs rules_atlas as a dependency from the commit's `git archive`: an untagged root resolves and runs an `atlas_schema_test` at the default version, a repeated identical tag resolves, an unsupported version fails clearly, and `@rules_atlas//...` loads.
+
+## Release archive contents (v0.5.1)
+
+`tests/` and `tools/` are `export-ignore` (`.gitattributes`). Their packages load dev-only modules (`rules_itest`, `rules_kind`, `rules_helm`, `rules_pg`, `rules_cloudnativepg`), which made `@rules_atlas//...` unloadable for consumers. `REPO.bazel` `ignore_directories` would also hide them from this repo's own `bazel test`, so it isn't used. `MODULE.bazel`'s dev-only `use_extension("//tools:extensions.bzl", ...)` is skipped for a non-root module, so the missing `tools/` doesn't matter there. A `git_override` clone still contains both directories.
+
 ## What this repo does not (yet) do
 
 - **`AtlasMigration` CR**: same operator handles versioned migrations (the second consumer-facing CRD). Consumers can apply the CR directly while the install macro waits on the same CRDs.
