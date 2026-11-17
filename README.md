@@ -13,7 +13,7 @@ Bazel rules for [Atlas](https://atlasgo.io) — declarative database schema mana
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_atlas", version = "0.5.1")
+bazel_dep(name = "rules_atlas", version = "0.5.2")
 ```
 
 That's all: rules_atlas's own `MODULE.bazel` fetches the Atlas CLI and registers the toolchain. rules_atlas is not in the BCR yet, so pin it (and `rules_kubectl`, below) with `archive_override` or `git_override`.
@@ -213,3 +213,9 @@ The operator manifest is rendered at maintainer time via `tools/render_atlas_ope
 Want Bazel rules for another tool or service?
 [Request a rules package](https://github.com/collider-bazel-extensions/.github/issues/new?template=request-a-rules-package.yml).
 The [organization page](https://github.com/collider-bazel-extensions) lists every package.
+
+## License
+
+[Apache License 2.0](LICENSE) (SPDX: `Apache-2.0`).
+
+Manifests in `private/manifests/` that are rendered from upstream charts or releases remain under their upstream projects' licences.
